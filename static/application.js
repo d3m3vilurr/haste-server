@@ -236,9 +236,13 @@ haste.prototype.loadDocument = function(key) {
 };
 
 haste.prototype.appendText = function(buffer) {
-  var _this = this;
-  _this.$code.append('<span>' + this.doc.htmlEscape(buffer) + '</span>');
+  this.$code.append('<span>' + this.doc.htmlEscape(buffer) + '</span>');
   this.appendLineNumbers(buffer.split('\n').length - 1);
+  //if (!this.follow) {
+  //  return;
+  //}
+  var body = $('html,body');
+  body.animate({scrollTop: body.height()}, 0);
 };
 
 haste.prototype.clearText = function() {
