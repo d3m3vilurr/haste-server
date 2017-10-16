@@ -53,6 +53,14 @@ haste_document.prototype.load = function(key, callback, lang) {
   });
 };
 
+haste_document.prototype.append = function(orig, buffer, callback) {
+  var newCode = orig + this.htmlEscape(buffer);
+  callback({
+    value: newCode,
+    lineCount: newCode.split('\n').length
+  });
+};
+
 // Save this document to the server and lock it here
 haste_document.prototype.save = function(data, callback) {
   if (this.locked) {
@@ -224,6 +232,20 @@ haste.prototype.loadDocument = function(key) {
       _this.newDocument();
     }
   }, this.lookupTypeByExtension(parts[1]));
+};
+
+haste.prototype.appendText = function(buffer) {
+  var _this = this;
+  this.doc.append(_this.$code.html(), buffer, function(ret) {
+    _this.$code.html(ret.value);
+    _this.addLineNumbers(ret.lineCount);
+    // need move last line
+  });
+};
+
+haste.prototype.clearText = function() {
+  this.$code.html('');
+  this.addLineNumbers(1);
 };
 
 // Duplicate the current document - only if locked

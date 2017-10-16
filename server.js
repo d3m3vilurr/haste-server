@@ -105,6 +105,7 @@ var documentHandler = new DocumentHandler({
 });
 
 var app = connect();
+var wss;
 
 // Rate limit all requests
 if (config.rateLimits) {
@@ -133,7 +134,8 @@ app.use(route(function(router) {
 
   router.delete('/documents/:id', function(request, response) {
     var key = request.params.id.split('.')[0];
-    return documentHandler.handleClear(key, response);
+    documentHandler.handleClear(key, response);
+    wss.emit('clearDocument', key);
   });
 }));
 
@@ -162,19 +164,63 @@ app.use(connect_st({
 }));
 
 var server = http.createServer(app);
-var wss = new WebSocket.Server({server: server});
+wss = new WebSocket.Server({server: server});
+wss.subscriptions = {};
+
+wss.on('clearDocument', function(key) {
+  documentHandler.clear(key, function(ret) {
+    if (!ret) {
+      return;
+    }
+    var packet = JSON.stringify({ command: 'clear' });
+    (wss.subscriptions[key] || []).forEach(function(subscription) {
+      subscription.send(packet);
+    });
+  });
+});
+
+wss.on('appendDocument', function(key, buffer) {
+  documentHandler.appendBuffer(key, buffer, function(ret) {
+    if (!ret) {
+      return;
+    }
+    var packet = JSON.stringify({ command: 'append', buffer: buffer });
+    (wss.subscriptions[key] || []).forEach(function(subscription) {
+      subscription.send(packet);
+    });
+  });
+});
 
 wss.on('connection', function(ws, req) {
   var loc = url.parse(req.url, true);
   winston.info('get new ws: ' + JSON.stringify(loc));
-  var id = loc.path.split('/')[1];
-  var key = id.split('.')[0];
-
-  if (!id || id === 'documents' || id === 'raw' || id === 'static') {
+  var pathes = loc.path.split('/');
+  var id = pathes[1];
+  var key;
+  if (!id || id === 'raw' || id === 'static') {
     winston.info('ignore path');
-    ws.close();
+    ws.terminate();
     return;
   }
+
+  if (id !== 'documents') {
+    key = id.split('.')[0];
+    wss.subscriptions[key] = wss.subscriptions[key] || [];
+    ws.on('close', () => {
+      var idx = wss.subscriptions[key].indexOf(ws);
+      if (idx >= 0) {
+        wss.subscriptions[key].splice(idx, 1);
+      }
+      if (!wss.subscriptions[key].length) {
+        delete wss.subscriptions[key];
+      }
+    });
+    wss.subscriptions[key].push(ws);
+    return;
+  }
+
+  id = pathes[2];
+  key = id.split('.')[0];
 
   ws.on('message', function(message) {
     // winston.info('receive new buf:' + buf);
@@ -187,14 +233,12 @@ wss.on('connection', function(ws, req) {
     }
     switch(cmd.command) {
     case 'append':
-      documentHandler.appendBuffer(key, cmd.buffer, function(ret) {
-        if (ret) {
-          ws.send('success');
-        }
-        else {
-          ws.send('failed');
-        }
-      });
+      wss.emit('appendDocument', key, cmd.buffer);
+      ws.send('ok');
+      return;
+    case 'clear':
+      wss.emit('clearDocument', key);
+      ws.send('ok');
       return;
     default:
       ws.send('unknown');
