@@ -53,14 +53,6 @@ haste_document.prototype.load = function(key, callback, lang) {
   });
 };
 
-haste_document.prototype.append = function(orig, buffer, callback) {
-  var newCode = orig + this.htmlEscape(buffer);
-  callback({
-    value: newCode,
-    lineCount: newCode.split('\n').length
-  });
-};
-
 // Save this document to the server and lock it here
 haste_document.prototype.save = function(data, callback) {
   if (this.locked) {
@@ -205,6 +197,15 @@ haste.prototype.addLineNumbers = function(lineCount) {
     h += (i + 1).toString() + '<br/>';
   }
   $('#linenos').html(h);
+  this._lineMax = lineCount;
+};
+
+haste.prototype.appendLineNumbers = function(lineCount) {
+  var lines = this._lineMax || 0;
+  for (var i = lines; i < lines + lineCount; i++) {
+    $('#linenos').append('<span>' + (i + 1).toString() + '<br/></span>');
+  }
+  this._lineMax += lineCount;
 };
 
 // Remove the line numbers
@@ -236,11 +237,8 @@ haste.prototype.loadDocument = function(key) {
 
 haste.prototype.appendText = function(buffer) {
   var _this = this;
-  this.doc.append(_this.$code.html(), buffer, function(ret) {
-    _this.$code.html(ret.value);
-    _this.addLineNumbers(ret.lineCount);
-    // need move last line
-  });
+  _this.$code.append('<span>' + this.doc.htmlEscape(buffer) + '</span>');
+  this.appendLineNumbers(buffer.split('\n').length - 1);
 };
 
 haste.prototype.clearText = function() {
