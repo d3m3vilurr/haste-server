@@ -1,8 +1,10 @@
 var http = require('http');
+var url = require('url');
 var fs = require('fs');
 
 var winston = require('winston');
 var connect = require('connect');
+var WebSocket = require('ws');
 var route = require('connect-route');
 var connect_st = require('st');
 var connect_rate_limit = require('connect-ratelimit');
@@ -128,6 +130,11 @@ app.use(route(function(router) {
     var skipExpire = !!config.documents[key];
     return documentHandler.handleGet(key, response, skipExpire);
   });
+
+  router.delete('/documents/:id', function(request, response) {
+    var key = request.params.id.split('.')[0];
+    return documentHandler.handleClear(key, response);
+  });
 }));
 
 // Otherwise, try to match static files
@@ -154,6 +161,47 @@ app.use(connect_st({
   index: 'index.html'
 }));
 
-http.createServer(app).listen(config.port, config.host);
+var server = http.createServer(app);
+var wss = new WebSocket.Server({server: server});
 
+wss.on('connection', function(ws, req) {
+  var loc = url.parse(req.url, true);
+  winston.info('get new ws: ' + JSON.stringify(loc));
+  var id = loc.path.split('/')[1];
+  var key = id.split('.')[0];
+
+  if (!id || id === 'documents' || id === 'raw' || id === 'static') {
+    winston.info('ignore path');
+    ws.close();
+    return;
+  }
+
+  ws.on('message', function(message) {
+    // winston.info('receive new buf:' + buf);
+    var cmd;
+    try {
+      cmd = JSON.parse(message);
+    } catch(e) {
+      ws.send('error');
+      return;
+    }
+    switch(cmd.command) {
+    case 'append':
+      documentHandler.appendBuffer(key, cmd.buffer, function(ret) {
+        if (ret) {
+          ws.send('success');
+        }
+        else {
+          ws.send('failed');
+        }
+      });
+      return;
+    default:
+      ws.send('unknown');
+    }
+  });
+  ws.send('connected');
+});
+
+server.listen(config.port, config.host);
 winston.info('listening on ' + config.host + ':' + config.port);
